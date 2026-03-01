@@ -1,29 +1,11 @@
-"""
-rag_query.py - Full RAG pipeline: Embed → Retrieve → Rerank → Generate
-
-Steps:
-  1. Embed query with Cohere (input_type='search_query')
-  2. Retrieve top-K from ChromaDB (cosine similarity)
-  3. Rerank with Cohere Rerank for better relevance
-  4. Build prompt: system + flight context + chat history + query
-  5. Generate answer with Groq (llama3-70b)
-  6. Save to session memory
-
-Usage (CLI):
-    python rag_query.py
-"""
-
 import json
 import cohere
 import chromadb
 from chromadb.config import Settings
 from groq import Groq
-
 from config import cfg
 from memory import memory_manager, SessionMemory
 
-
-# ── Clients ──────────────────────────────────────────────
 
 def get_clients():
     co = cohere.Client(cfg.COHERE_API_KEY)
@@ -39,8 +21,6 @@ def get_clients():
     return co, groq_client, collection
 
 
-# ── Step 1: Embed query ───────────────────────────────────
-
 def embed_query(query: str, co: cohere.Client) -> list[float]:
     """
     Embed the user query.
@@ -54,8 +34,6 @@ def embed_query(query: str, co: cohere.Client) -> list[float]:
     )
     return response.embeddings[0]
 
-
-# ── Step 2: Retrieve from ChromaDB ───────────────────────
 
 def retrieve_candidates(
     query_embedding: list[float],
@@ -91,27 +69,20 @@ def retrieve_candidates(
     return candidates
 
 
-# ── Step 3: Rerank with Cohere ────────────────────────────
-
 def rerank_results(
     query: str,
     candidates: list[dict],
     co: cohere.Client,
     top_n: int = None,
 ) -> list[dict]:
-    """
-    Rerank ChromaDB results using Cohere's cross-encoder reranker.
-    This captures nuanced relevance that pure embedding similarity misses.
-    E.g., 'refundable flights' will score refundable flights higher even if
-    semantic similarity alone didn't distinguish them.
-    """
+
     if not candidates:
         return []
 
     n = top_n or cfg.TOP_K_RERANK
     docs = [c["document"] for c in candidates]
 
-    print(f"[rag] 🔄 Reranking {len(docs)} candidates → keeping top {n}...")
+    print(f"[rag]  Reranking {len(docs)} candidates → keeping top {n}...")
 
     response = co.rerank(
         query=query,
@@ -131,8 +102,6 @@ def rerank_results(
     print(f"[rag] ✅ Top rerank score: {reranked[0]['rerank_score']:.4f}")
     return reranked
 
-
-# ── Step 4: Build prompt ──────────────────────────────────
 
 SYSTEM_PROMPT = """You are FlightBot, a smart travel assistant for BudgetAir (tripsaverz.in).
 
@@ -198,8 +167,6 @@ def build_prompt(
     return messages
 
 
-# ── Step 5: Generate answer ───────────────────────────────
-
 def generate_answer(messages: list[dict], groq_client: Groq) -> str:
     response = groq_client.chat.completions.create(
         model=cfg.GROQ_MODEL,
@@ -209,8 +176,6 @@ def generate_answer(messages: list[dict], groq_client: Groq) -> str:
     )
     return response.choices[0].message.content
 
-
-# ── Main RAG function ─────────────────────────────────────
 
 def rag_query(
     query: str,
@@ -235,35 +200,26 @@ def rag_query(
     co, groq_client, collection = get_clients()
     session = memory_manager.get_or_create(session_id)
 
-    # Add to memory
     session.add_user_message(query)
 
-    # Step 1: Embed
     print("[rag] 🔢 Embedding query...")
     query_vec = embed_query(query, co)
 
-    # Step 2: Retrieve
     candidates = retrieve_candidates(query_vec, collection, top_k=top_k_retrieve)
 
-    # Step 3: Rerank
     reranked = rerank_results(query, candidates, co, top_n=top_k_rerank) if candidates else []
 
-    # Update memory context
     if reranked:
         session.update_flight_context([r["metadata"] for r in reranked])
 
-    # Step 4: Build prompt
     messages = build_prompt(query, reranked, session)
 
-    # Step 5: Generate
-    print("[rag] 🤖 Generating answer via Groq...")
+    print("[rag]  Generating answer via Groq...")
     answer = generate_answer(messages, groq_client)
 
-    # Save to memory
     flight_ids = [r["metadata"].get("flight_id", "") for r in reranked]
     session.add_assistant_message(answer, flight_ids=flight_ids)
 
-    # Build sources for API response
     sources = [
         {
             "flight_id": r["metadata"].get("flight_id"),
@@ -289,7 +245,6 @@ def rag_query(
     }
 
 
-# ── CLI interactive mode ──────────────────────────────────
 
 if __name__ == "__main__":
     import uuid
