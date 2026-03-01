@@ -1,13 +1,3 @@
-"""
-memory.py - Per-session chat memory for follow-up questions.
-
-Enables conversations like:
-  User: "What's the cheapest flight?"
-  Bot:  "IndiGo 6E-201 at ₹3,899..."
-  User: "Is it refundable?"         ← follows up without repeating context
-  Bot:  "No, that flight is non-refundable."
-"""
-
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -53,10 +43,6 @@ class SessionMemory:
         ]
 
     def get_context_summary(self) -> str:
-        """
-        Short summary of recently discussed flights.
-        Helps the LLM resolve references like 'that flight' or 'the cheapest one'.
-        """
         if not self.last_retrieved_flights:
             return ""
         lines = ["Recently discussed flights:"]
@@ -83,7 +69,6 @@ class SessionMemory:
 
 
 class MemoryManager:
-    """Manages all active sessions in memory (per server process)."""
 
     def __init__(self):
         self._sessions: dict[str, SessionMemory] = {}
@@ -109,6 +94,4 @@ class MemoryManager:
     def count(self) -> int:
         return len(self._sessions)
 
-
-# Singleton — shared across server.py and rag_query.py
 memory_manager = MemoryManager()
